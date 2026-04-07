@@ -1,0 +1,577 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Wayfinder</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html, body {
+  width: 100%; height: 100%;
+  overflow: hidden;
+  background: #000008;
+  font-family: 'SF Mono', 'Fira Code', 'Courier New', 'Times New Roman', monospace;
+}
+
+canvas { display: block; cursor: grab; }
+canvas.dragging { cursor: grabbing; }
+
+.panel {
+  position: absolute;
+  background: rgba(2, 6, 18, 0.85);
+  border: 0.5px solid rgba(80, 140, 255, 0.22);
+  border-radius: 8px;
+  backdrop-filter: blur(10px);
+}
+
+/*Search Function for Wayfinder*/
+#search-wrap { top: 18px; left: 18px; width: 240px; }
+
+#search-input {
+  width: 100%;
+  background: transparent;
+  border: none; outline: none;
+  color: rgba(224, 228, 234, 0.9);
+  font-family: inherit;
+  font-size: 12px;
+  letter-spacing: 0.07em;
+  padding: 11px 14px;
+}
+#search-input::placeholder { color: rgba(80, 140, 255, 0.35); }
+
+#search-divider { height: 0.5px; background: rgba(80, 140, 255, 0.18); display: none; }
+
+#search-results { max-height: 200px; overflow-y: auto; }
+#search-results::-webkit-scrollbar { width: 4px; }
+#search-results::-webkit-scrollbar-thumb { background: rgba(80,140,255,0.2); border-radius: 2px; }
+
+.result-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 14px;
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  color: rgba(130, 175, 255, 0.75);
+  cursor: pointer;
+  border-bottom: 0.5px solid rgba(80, 140, 255, 0.07);
+  transition: background 0.1s;
+}
+.result-item:last-child { border-bottom: none; }
+.result-item:hover { background: rgba(80,140,255,0.1); color: rgba(200, 225, 255, 1); }
+.result-mag { color: rgba(80, 140, 255, 0.45); font-size: 10px; }
+
+/*Panel to Show info of Star when It's selected*/
+#info-panel {
+  top: 18px; right: 18px;
+  width: 210px;
+  padding: 18px 18px 14px;
+  display: none;
+}
+
+#info-close {
+  position: absolute; top: 8px; right: 11px;
+  background: none; border: none; cursor: pointer;
+  color: rgba(80, 140, 255, 0.4);
+  font-size: 20px; line-height: 1;
+  transition: color 0.15s;
+}
+#info-close:hover { color: rgba(160, 200, 255, 1); }
+
+#star-name {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: rgba(210, 230, 255, 1);
+  margin-bottom: 14px;
+  padding-right: 22px;
+  line-height: 1.4;
+}
+
+.info-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin: 6px 0;
+  font-size: 11px;
+}
+.info-lbl {
+  color: rgba(80, 140, 255, 0.5);
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+.info-val { color: rgba(170, 205, 255, 0.9); }
+
+/*Footer hints*/
+#hints {
+  position: absolute;
+  bottom: 18px; left: 50%; transform: translateX(-50%);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: rgba(80, 140, 255, 0.28);
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+#counter {
+  position: absolute;
+  bottom: 18px; left: 18px;
+  font-size: 10px;
+  letter-spacing: 0.07em;
+  color: rgba(80, 140, 255, 0.25);
+}
+
+/*Constellation label that fades in/out*/
+#const-label {
+  position: absolute;
+  bottom: 50px; left: 50%; transform: translateX(-50%);
+  font-size: 11px;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: rgba(80, 140, 255, 0.5);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.8s;
+}
+</style>
+</head>
+<body>
+    <canvas id="c"></canvas>
+
+<!-- Search panel -->
+<div class="panel" id="search-wrap">
+  <input id="search-input" type="text" placeholder="SEARCH THE STARS..." autocomplete="on" spellcheck="false"/>
+  <div id="search-divider"></div>
+  <div id="search-results"></div>
+</div>
+
+<!-- Star info panel -->
+<div class="panel" id="info-panel">
+  <button id="info-close">x</button>
+  <div id="star-name">-</div>
+  <div class="info-row"><span class="info-lbl">Magnitude</span><span class="info-val" id="i-mag">-</span></div>
+  <div class="info-row"><span class="info-lbl">RA</span>       <span class="info-val" id="i-ra">-</span></div>
+  <div class="info-row"><span class="info-lbl">Dec</span>      <span class="info-val" id="i-dec">-</span></div>
+  <div class="info-row"><span class="info-lbl">Distance</span> <span class="info-val" id="i-dist">-</span></div>
+  <div class="info-row"><span class="info-lbl">Spectral</span> <span class="info-val" id="i-spec">-</span></div>
+</div>
+
+<div id="hints">Drag to look &nbsp;|&nbsp; Scroll to zoom &nbsp;|&nbsp; Click a star</div>
+<div id="counter"></div>
+
+<script type="module">
+import * as THREE from 'https://unpkg.com/three@0.160.0/build/three.module.js';
+/*Function to load our data from our HVG File*/
+async function loadStarCatalog() {
+  const response = await fetch('data/hyg_v42.csv');
+  const text = await response.text();
+  const lines = text.split('\n');
+  
+  const firstLine = lines[0];
+  const delimiter = firstLine.includes(',') ? ',' : (firstLine.includes('\t') ? '\t' : null);
+  console.log('Detected delimiter:', delimiter === ',' ? 'COMMA' : (delimiter === '\t' ? 'TAB' : 'UNKNOWN'));
+  if (!delimiter) throw new Error('Cannot detect delimiter');
+
+  const clean = (s) => s ? s.replace(/^"|"$/g, '').trim() : '';
+  const header = firstLine.split(delimiter).map(clean);
+  console.log('Header columns:', header);
+
+  const nameIdx = header.findIndex(h => h.toLowerCase() === 'proper');
+  const raIdx   = header.findIndex(h => h.toLowerCase() === 'ra');
+  const decIdx  = header.findIndex(h => h.toLowerCase() === 'dec');
+  const magIdx  = header.findIndex(h => h.toLowerCase() === 'mag');
+  const distIdx = header.findIndex(h => h.toLowerCase() === 'dist');
+  const specIdx = header.findIndex(h => h.toLowerCase() === 'spect');
+
+  if (nameIdx === -1 || raIdx === -1 || decIdx === -1 || magIdx === -1) {
+    console.error('Required columns missing!');
+    return [];
+  }
+
+  const catalog = [];
+  for (let i = 1; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line) continue;
+    const cols = line.split(delimiter).map(clean);
+    if (cols.length < Math.max(nameIdx, raIdx, decIdx, magIdx) + 1) continue;
+
+    const name = cols[nameIdx];
+    if (!name || name === '') continue;
+
+    const ra  = parseFloat(cols[raIdx]);
+    const dec = parseFloat(cols[decIdx]);
+    const mag = parseFloat(cols[magIdx]);
+
+    if (isNaN(ra) || isNaN(dec) || isNaN(mag)) continue;
+    if (ra < 0 || ra > 24 || dec < -90 || dec > 90) continue;
+
+    let dist = (distIdx !== -1) ? parseFloat(cols[distIdx]) : 0;
+    if (isNaN(dist)) dist = 0;
+    const spec = (specIdx !== -1 && cols[specIdx]) ? cols[specIdx] : '';
+
+    catalog.push([name, ra, dec, mag, dist, spec]);
+  }
+
+  console.log(`Loaded ${catalog.length} valid named stars`);
+  if (catalog.length) console.log('Sample star:', catalog[0]);
+  return catalog;
+}
+/*For now we will keep this as a const, beacause I have to figure out how to convert the constellation names to actual values from the dataset*/
+const CONSTELLATIONS = {
+  Orion: [
+    ["Betelgeuse","Bellatrix"], ["Betelgeuse","Alnilam"],
+    ["Bellatrix","Mintaka"],   ["Mintaka","Alnilam"],
+    ["Alnilam","Alnitak"],     ["Alnilam","Rigel"],
+    ["Alnilam","Saiph"],       ["Rigel","Saiph"],
+    ["Rigel","Cursa"],
+  ],
+  "Big Dipper": [
+    ["Alkaid","Mizar"],   ["Mizar","Alioth"],
+    ["Alioth","Megrez"],  ["Megrez","Phecda"],
+    ["Megrez","Dubhe"],   ["Dubhe","Merak"],
+    ["Merak","Phecda"],
+  ],
+  Cassiopeia: [
+    ["Caph","Schedar"], ["Schedar","Navi"],
+    ["Navi","Ruchbah"],
+  ],
+  Scorpius: [
+    ["Antares","Dschubba"], ["Antares","Graffias"],
+    ["Antares","Shaula"],
+    ["Shaula","Lesath"],
+  ],
+  Cygnus: [
+    ["Deneb","Sadr"], ["Sadr","Aljanah"],
+    ["Sadr","Albireo"],
+  ],
+};
+
+/* Convert RA (hours) + Dec (degrees) to 3D point on sphere of radius r*/
+function radec2xyz(ra_h, dec_deg, r = 500) {
+  const ra  = ra_h  * (Math.PI / 12);
+  const dec = dec_deg * (Math.PI / 180);
+  return new THREE.Vector3(
+    r * Math.cos(dec) * Math.cos(ra),
+    r * Math.sin(dec),
+    r * Math.cos(dec) * Math.sin(ra)
+  );
+}
+
+/* Map spectral class to RGB color*/
+function spectralColor(spec = '') {
+  const c = spec.charAt(0).toUpperCase();
+  const map = {
+    O: [0.72, 0.82, 1.00],  // blue-white
+    B: [0.82, 0.91, 1.00],  // blue-white
+    A: [1.00, 1.00, 1.00],  // white
+    F: [1.00, 0.98, 0.88],  // yellow-white
+    G: [1.00, 0.94, 0.65],  // yellow
+    K: [1.00, 0.78, 0.44],  // orange
+    M: [1.00, 0.56, 0.36],  // red-orange
+  };
+  const [r,g,b] = map[c] || [1,1,1];
+  return new THREE.Color(r,g,b);
+}
+
+/* Magnitude to point size (brighter = larger)*/
+function magToSize(mag) {
+  return Math.max(1.4, 9.5 - mag * 1.9);
+}
+
+/* Okay, now It's time for Three.js/Let's see how long this takes*/
+async function init() {
+    const catalog = await loadStarCatalog();
+    const bgCount = catalog.length; 
+    const canvas   = document.getElementById('c');
+    let W = window.innerWidth, H = window.innerHeight;
+
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    renderer.setSize(W, H);
+    renderer.setClearColor(0x000008);
+
+    const scene  = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(70, W / H, 0.1, 5000);
+    camera.position.set(0, 0, 0.001); /*Camera is at origin*/
+
+    /*Named Star geometry*/
+    const positions = [];
+    const colors = [];
+    const sizes = [];
+
+    catalog.forEach(s => {
+    const p = radec2xyz(s[1], s[2]);
+    positions.push(p.x, p.y, p.z);
+    const c = spectralColor(s[5]);
+    colors.push(c.r, c.g, c.b);
+    sizes.push(magToSize(s[3]));
+    });
+
+    const starGeometry = new THREE.BufferGeometry();
+    starGeometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    starGeometry.setAttribute('color',    new THREE.Float32BufferAttribute(colors,    3));
+    starGeometry.setAttribute('size',     new THREE.Float32BufferAttribute(sizes,     1));
+
+    const starMat = new THREE.ShaderMaterial({
+    vertexColors: true,
+    transparent:  true,
+    depthWrite:   false,
+    uniforms: {
+        selectedIdx: { value: -1.0 },
+    },
+    vertexShader: `
+        attribute float size;
+        varying vec3  vColor;
+        varying float vSel;
+        uniform float selectedIdx;
+
+        void main() {
+        vColor = color;
+        float isSel = step(abs(float(gl_VertexID) - selectedIdx), 0.5);
+        vSel = isSel;
+        gl_PointSize = size * (1.0 + isSel * 2.2);
+        gl_Position  = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+    `,
+    fragmentShader: `
+        varying vec3  vColor;
+        varying float vSel;
+
+        void main() {
+        vec2  uv   = gl_PointCoord - 0.5;
+        float dist = length(uv);
+        if (dist > 0.5) discard;
+
+        float core = 1.0 - smoothstep(0.0,  0.15, dist);
+        float halo = 1.0 - smoothstep(0.12, 0.50, dist);
+        float a    = clamp(core + halo * 0.55, 0.0, 1.0);
+
+        vec3 col = mix(vColor, vec3(1.0), core * 0.45);
+        if (vSel > 0.5) {
+            col  = mix(vec3(1.0, 0.88, 0.28), vec3(1.0), core * 0.5);
+            a   *= 1.2;
+        }
+        gl_FragColor = vec4(col, a);
+        }
+    `,
+    });
+
+const starPoints = new THREE.Points(starGeometry, starMat);
+scene.add(starPoints);
+
+/*Relized that we need to find the celesital equator so we can actually view stuff*/
+const equatorPoints = [];
+for (let i = 0; i <= 128; i++) {
+  const a = (i / 128) * Math.PI * 2;
+  equatorPoints.push(496 * Math.cos(a), 0, 496 * Math.sin(a)); /*polar coordinates converted to 3D Cartesian coordinates*/
+}
+const equator = new THREE.BufferGeometry();
+equator.setAttribute('position', new THREE.Float32BufferAttribute(equatorPoints, 3));
+scene.add(new THREE.Line(equator, new THREE.LineBasicMaterial({
+  color: 0x1133aa, opacity: 0.12, transparent: true,
+})));
+
+/*This section is for the constellation lines. This might be subject to change later, depending on how I implement this later*/
+const nameToIdx = {};
+catalog.forEach((s, i) => { nameToIdx[s[0]] = i; });
+
+const lineVerts = [];
+
+Object.values(CONSTELLATIONS).flat().forEach(([a, b]) => {
+  const ia = nameToIdx[a], ib = nameToIdx[b];
+  if (ia == null || ib == null) return;
+  const pa = radec2xyz(catalog[ia][1], catalog[ia][2], 496);
+  const pb = radec2xyz(catalog[ib][1], catalog[ib][2], 496);
+  lineVerts.push(pa.x, pa.y, pa.z, pb.x, pb.y, pb.z);
+});
+
+const lineGeometry = new THREE.BufferGeometry();
+lineGeometry.setAttribute('position', new THREE.Float32BufferAttribute(lineVerts, 3));
+scene.add(new THREE.LineSegments(lineGeometry, new THREE.LineBasicMaterial({
+  color: 0x2255bb, opacity: 0.32, transparent: true,
+})));
+
+/*Stuff to make it interactable.*/
+let rotX = 0, rotY = 0;        /*We use Euler Angles*/
+let isDragging = false;
+let prevX = 0, prevY = 0;
+let downX = 0, downY = 0;      /*Our position at mousedown*/
+let autoSpin = true;
+let selectedIdx = -1;
+let fov = 70;
+
+/*Mouse Drag*/
+canvas.addEventListener('mousedown', e => {
+  isDragging = true; autoSpin = false;
+  prevX = downX = e.clientX;
+  prevY = downY = e.clientY;
+  canvas.classList.add('dragging');
+});
+
+window.addEventListener('mousemove', e => {
+  if (!isDragging) return;
+  rotY += (e.clientX - prevX) * 0.0028;
+  rotX += (e.clientY - prevY) * 0.0028;
+  rotX = Math.max(-Math.PI * 0.46, Math.min(Math.PI * 0.46, rotX));
+  prevX = e.clientX; prevY = e.clientY;
+  scene.rotation.set(rotX, rotY, 0, 'YXZ');
+});
+
+window.addEventListener('mouseup', () => {
+  isDragging = false;
+  canvas.classList.remove('dragging');
+});
+
+/*Touch drag enabled*/
+canvas.addEventListener('touchstart', e => {
+  isDragging = true; autoSpin = false;
+  prevX = downX = e.touches[0].clientX;
+  prevY = downY = e.touches[0].clientY;
+}, { passive: true });
+
+canvas.addEventListener('touchmove', e => {
+  if (!isDragging) return;
+  e.preventDefault();
+  rotY += (e.touches[0].clientX - prevX) * 0.0028;
+  rotX += (e.touches[0].clientY - prevY) * 0.0028;
+  rotX = Math.max(-Math.PI * 0.46, Math.min(Math.PI * 0.46, rotX));
+  prevX = e.touches[0].clientX; prevY = e.touches[0].clientY;
+  scene.rotation.set(rotX, rotY, 0, 'YXZ');
+}, { passive: false });
+
+canvas.addEventListener('touchend', () => { isDragging = false; });
+
+/*Allow scroll to zoom*/
+window.addEventListener('wheel', e => {
+  fov = Math.max(10, Math.min(90, fov + e.deltaY * 0.04));
+  camera.fov = fov;
+  camera.updateProjectionMatrix();
+}, { passive: true });
+
+/*Alright, now let's add star selection using raycasting*/
+const raycaster = new THREE.Raycaster();
+const mouse     = new THREE.Vector2();
+
+function selectStar(idx) {
+  selectedIdx = idx;
+  starMat.uniforms.selectedIdx.value = idx;
+
+  const s = catalog[idx];
+  document.getElementById('star-name').textContent = s[0].toUpperCase();
+  document.getElementById('i-mag').textContent  = Number(s[3]).toFixed(2);
+  document.getElementById('i-ra').textContent   = `${Number(s[1]).toFixed(4)} h`;
+  document.getElementById('i-dec').textContent  = `${Number(s[2]).toFixed(2)}°`;
+  document.getElementById('i-dist').textContent = `${s[4]} ly`;
+  document.getElementById('i-spec').textContent = s[5] || '-';
+  document.getElementById('info-panel').style.display = 'block';
+}
+
+canvas.addEventListener('click', e => {
+  /* Ignore if this was actually a drag*/
+  const dx = e.clientX - downX, dy = e.clientY - downY;
+  if (dx*dx + dy*dy > 30) return;
+
+  mouse.x =  (e.clientX / W) * 2 - 1;
+  mouse.y = -(e.clientY / H) * 2 + 1;
+
+  /* Scale threshold with FOV so click accuracy matches zoom level*/
+  raycaster.params.Points.threshold = 3.5 * (fov / 70);
+  raycaster.setFromCamera(mouse, camera);
+
+  const hits = raycaster.intersectObject(starPoints);
+  if (hits.length) selectStar(hits[0].index);
+});
+
+document.getElementById('info-close').addEventListener('click', () => {
+  document.getElementById('info-panel').style.display = 'none';
+  selectedIdx = -1;
+  starMat.uniforms.selectedIdx.value = -1;
+});
+
+/*Search stuff properly implemented*/
+const searchInput   = document.getElementById('search-input');
+const searchResults = document.getElementById('search-results');
+const searchDivider = document.getElementById('search-divider');
+
+function clearSearch() {
+  searchResults.innerHTML = '';
+  searchDivider.style.display = 'none';
+}
+
+searchInput.addEventListener('input', () => {
+  const q = searchInput.value.toLowerCase().trim();
+  if (q.length < 1) { clearSearch(); return; }
+
+  const hits = catalog
+    .map((s, i) => ({ s, i }))
+    .filter(({ s }) => s[0].toLowerCase().includes(q))
+    .slice(0, 8);
+
+  if (!hits.length) { clearSearch(); return; }
+
+  searchDivider.style.display = 'block';
+  searchResults.innerHTML = hits.map(({ s, i }) =>
+    `<div class="result-item" data-idx="${i}">
+       <span>${s[0]}</span>
+       <span class="result-mag">mag ${Number(s[3]).toFixed(2)}</span>
+     </div>`
+  ).join('');
+
+  searchResults.querySelectorAll('.result-item').forEach(el => {
+    el.addEventListener('click', () => {
+      const idx = parseInt(el.dataset.idx);
+      const s   = CATALOG[idx];
+
+      /* Rotate scene to face this star
+         Formula: rotY = ra_rad + π/2,  rotX = -dec_rad
+         (derived from camera at origin looking in -Z, 'YXZ' Euler order)*/
+      const ra_rad  = s[1] * (Math.PI / 12);
+      const dec_rad = s[2] * (Math.PI / 180);
+      rotY  = ra_rad + Math.PI / 2;
+      rotX  = -dec_rad;
+      rotX  = Math.max(-Math.PI * 0.46, Math.min(Math.PI * 0.46, rotX));
+      scene.rotation.set(rotX, rotY, 0, 'YXZ');
+
+      selectStar(idx);
+      searchInput.value = s[0];
+      clearSearch();
+      autoSpin = false;
+    });
+  });
+});
+
+/*Close dropdowns when clicking elsewhere*/
+document.addEventListener('click', e => {
+  if (!e.target.closest('#search-wrap')) clearSearch();
+});
+
+/*Some UI setup & Rendering*/
+document.getElementById('counter').textContent =
+  `${catalog.length} named stars`;
+function animate() {
+  requestAnimationFrame(animate);
+
+  if (autoSpin && !isDragging) {
+    rotY += 0.00025;
+    scene.rotation.set(rotX, rotY, 0, 'YXZ');
+  }
+
+  renderer.render(scene, camera);
+}
+animate();
+
+/*Ability to resize when we minimize or change window layout*/
+window.addEventListener('resize', () => {
+  W = window.innerWidth; H = window.innerHeight;
+  camera.aspect = W / H;
+  camera.updateProjectionMatrix();
+  renderer.setSize(W, H);
+});
+}
+init();
+</script>
+<body>
+</html>
