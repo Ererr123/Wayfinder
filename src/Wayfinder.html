@@ -4,7 +4,6 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Wayfinder</title>
-<script src="https://cdn.jsdelivr.net/npm/astronomy-engine@2/browser/astronomy.js"></script>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -105,13 +104,6 @@ canvas.dragging { cursor: grabbing; }
 }
 .info-val { color: rgba(170, 205, 255, 0.9); }
 
-/* Location panel */
-#location-panel {
-  bottom: 18px; right: 18px;
-  width: 210px;
-  padding: 18px 18px 14px;
-}
-
 /*Footer hints*/
 #hints {
   position: absolute;
@@ -131,27 +123,7 @@ canvas.dragging { cursor: grabbing; }
   letter-spacing: 0.07em;
   color: rgba(80, 140, 255, 0.25);
 }
-#status-bar {
-  position:absolute; bottom:18px; right:18px;
-  font-size:10px; letter-spacing:0.07em;
-  color:rgba(80,140,255,0.4);
-  display:flex; gap:8px; align-items:center;
-}
-.s-dot { color:rgba(80,140,255,0.2); }
-#s-loc-btn {
-  cursor:pointer; background:none; border:none; font:inherit;
-  font-size:10px; letter-spacing:0.07em; color:rgba(80,140,255,0.4); transition:color 0.15s;
-}
-#s-loc-btn:hover { color:rgba(130,180,255,0.8); }
 
-/* Compass labels */
-.cmp {
-  position:absolute; pointer-events:none;
-  font-size:10px; letter-spacing:0.15em;
-  color:rgba(80,140,255,0.5);
-  transform:translate(-50%,-50%);
-  transition:opacity 0.2s;
-}
 /*Constellation label that fades in/out*/
 #const-label {
   position: absolute;
@@ -185,17 +157,6 @@ canvas.dragging { cursor: grabbing; }
   <div class="info-row"><span class="info-lbl">Dec</span>      <span class="info-val" id="i-dec">-</span></div>
   <div class="info-row"><span class="info-lbl">Distance</span> <span class="info-val" id="i-dist">-</span></div>
   <div class="info-row"><span class="info-lbl">Spectral</span> <span class="info-val" id="i-spec">-</span></div>
-</div>
-
-<!-- Location and time panel -->
-<div class="panel" id="location-panel">
-  <div id="location-info">
-    <div class="info-row"><span class="info-lbl">Latitude</span><span class="info-val" id="lat">-</span></div>
-    <div class="info-row"><span class="info-lbl">Longitude</span><span class="info-val" id="lon">-</span></div>
-    <div class="info-row"><span class="info-lbl">Time</span><span class="info-val" id="time">-</span></div>
-    <div class="info-row"><span class="info-lbl">LST</span><span class="info-val" id="lst">-</span></div>
-  </div>
-  <iframe id="map" width="200" height="150" style="border:0;" allowfullscreen="" loading="lazy"></iframe>
 </div>
 
 <div id="hints">Drag to look &nbsp;|&nbsp; Scroll to zoom &nbsp;|&nbsp; Click a star</div>
@@ -320,10 +281,6 @@ function magToSize(mag) {
   return Math.max(1.4, 9.5 - mag * 1.9);
 }
 
-function pad2(n) { 
-return String(Math.floor(n)).padStart(2,'0'); 
-}
-
 /* Okay, now It's time for Three.js/Let's see how long this takes*/
 async function init() {
     const catalog = await loadStarCatalog();
@@ -339,35 +296,7 @@ async function init() {
     const scene  = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(70, W / H, 0.1, 5000);
     camera.position.set(0, 0, 0.001); /*Camera is at origin*/
-    let lat = 0, lon = 0, currentTime = new Date(), lst = 0;
-    let lastUpdate = 0;
 
-    function updateLocation() {
-      document.getElementById('lat').textContent = lat.toFixed(4) + '°';
-      document.getElementById('lon').textContent = lon.toFixed(4) + '°';
-      currentTime = new Date();
-      document.getElementById('time').textContent = currentTime.toLocaleTimeString();
-      lst = Astronomy.SiderealTime(currentTime, lon);
-      document.getElementById('lst').textContent = lst.toFixed(4) + ' h';
-      document.getElementById('map').src = `https://maps.google.com/maps?q=${lat},${lon}&output=embed`;
-      // Set initial rotation
-      rotX = -lat * Math.PI / 180;
-      rotY = -lst * Math.PI / 12;
-      scene.rotation.set(rotX, rotY, 0, 'YXZ');
-    }
-
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(position => {
-        lat = position.coords.latitude;
-        lon = position.coords.longitude;
-        updateLocation();
-      }, () => {
-        console.log('Geolocation failed, using defaults');
-        updateLocation();
-      });
-    } else {
-      updateLocation();
-    }
     /*Named Star geometry*/
     const positions = [];
     const colors = [];
@@ -622,24 +551,11 @@ document.addEventListener('click', e => {
 /*Some UI setup & Rendering*/
 document.getElementById('counter').textContent =
   `${catalog.length} named stars`;
-let lastFrame = Date.now();
 function animate() {
   requestAnimationFrame(animate);
 
-  const now = Date.now();
-  const delta = now - lastFrame;
-  lastFrame = now;
-
-  if (now - lastUpdate > 1000) {
-    currentTime = new Date();
-    document.getElementById('time').textContent = currentTime.toLocaleTimeString();
-    lst = Astronomy.SiderealTime(currentTime, lon);
-    document.getElementById('lst').textContent = lst.toFixed(4) + ' h';
-    lastUpdate = now;
-  }
-
   if (autoSpin && !isDragging) {
-    rotY += 7.292e-5 * delta / 1000; // Sidereal rotation
+    rotY += 0.00025;
     scene.rotation.set(rotX, rotY, 0, 'YXZ');
   }
 
